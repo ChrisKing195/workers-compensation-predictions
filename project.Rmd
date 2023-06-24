@@ -1,0 +1,579 @@
+---
+title: "Final Project"
+author:  "Christopher King"
+date: "2023-06-23"
+output: word_document
+---
+
+```{r title, error=TRUE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r title, error=TRUE}
+
+###load in the data
+raw_data <- read.csv("ClaimData.csv")
+
+```
+
+```{r title, error=TRUE}
+
+###put the data into a dataframe
+original_dataframe <- data.frame(raw_data) #put the raw data in a dataframe
+
+```
+
+```{r title, error=TRUE}
+
+###create new columns
+original_dataframe$AvgWorkPerDay <- (original_dataframe$HoursWorkedPerWeek / original_dataframe$DaysWorkedPerWeek) #create a new column showing average work per day
+original_dataframe$TimeToReport <- difftime(original_dataframe$DateReported, original_dataframe$DateTimeOfAccident, units = "hours") #create a new column showing the time it took for incident to be reported
+original_dataframe$HourlyPay <- (original_dataframe$WeeklyWages / original_dataframe$HoursWorkedPerWeek) #create a new column estimating hourly pay
+original_dataframe$TotalDependents <- (original_dataframe$DependentChildren + original_dataframe$DependentsOther)
+original_dataframe$HasDependents <- ifelse(test = original_dataframe$TotalDependents > 0, yes = 1, no = 0)
+
+```
+
+```{r title, error=TRUE}
+
+###drop NA/unknown/implausible rows
+original_dataframe <- na.omit(original_dataframe) #take away any rows containing NA's
+original_dataframe <- subset(original_dataframe, MaritalStatus  != 'U') #take away all the rows where marital status is unknown
+original_dataframe <- subset(original_dataframe, MaritalStatus != '') #take away all rows where marital status is left blank
+original_dataframe <- subset(original_dataframe, HoursWorkedPerWeek < 167) #only keep rows where hours worked per week is less than 167
+original_dataframe <- subset(original_dataframe, HoursWorkedPerWeek > 0) #only keep rows where hours worked per week is greater than 0
+original_dataframe <- subset(original_dataframe, AvgWorkPerDay < 25) #only keep rows where hours per day is less than 25
+original_dataframe <- subset(original_dataframe, Gender != 'U') #remove rows where gender is unknown
+
+```
+
+```{r title, error=TRUE}
+
+###keep just the best variables
+df <- subset(original_dataframe, select = c(UltimateIncurredClaimCost, Age, HourlyPay, Gender, MaritalStatus, HasDependents))
+
+```
+
+```{r title, error=TRUE}
+
+###encode 0 and 1 for binaries in Marital status, Part or full time, and gender
+df$MaritalStatus[df$MaritalStatus == 'M'] <- 1
+df$MaritalStatus[df$MaritalStatus == 'S'] <- 0
+df$Gender[df$Gender == 'M'] <- 1
+df$Gender[df$Gender == 'F'] <- 0
+
+```
+
+```{r title, error=TRUE}
+
+###change data type of columns to numeric
+df$Age <- as.numeric(df$Age)
+df$Gender <- as.numeric(df$Gender)
+df$MaritalStatus <- as.numeric(df$MaritalStatus)
+df$UltimateIncurredClaimCost <- as.numeric(df$UltimateIncurredClaimCost)
+df$HourlyPay <- as.numeric(df$HourlyPay)
+df$HasDependents <- as.numeric(df$HasDependents)
+
+```
+
+```{r title, error=TRUE}
+
+###establish which variables are continuous and which are binary
+continuous_variables <- subset(df, select = c(Age, UltimateIncurredClaimCost, HourlyPay))
+binary_variables <- subset(df, select = c(Gender, MaritalStatus, HasDependents))
+
+```
+
+```{r title, error=TRUE}
+
+###Import the necessary libraries
+install.packages("fitdistrplus")
+install.packages("ggplot2")
+install.packages("PerformanceAnalytics")
+install.packages("corrplot")
+install.packages("nortest")
+install.packages("Metrics", dep = TRUE)
+install.packages("lmtest")
+install.packages('neuralnet', dependencies = T)
+install.packages('NeuralNetTools')
+library(fitdistrplus)
+library(ggplot2)
+library(PerformanceAnalytics)
+library(corrplot)
+library(nortest)
+library(Metrics)
+library(lmtest)
+library(neuralnet)
+library(NeuralNetTools)
+
+```
+
+```{r title, error=TRUE}
+
+###Correlation matrix, this can be plugged into chart.correlation
+correlation_matrix <- cor(continuous_variables, use = "everything");correlation_matrix
+
+###Correlation matrix chart, nice to visualize the scatterplots, fitted line, correlation of each variable
+correlation_chart <- chart.Correlation(continuous_variables)
+
+```
+
+```{r title, error=TRUE}
+
+###Pearson correlation test for Gender with Final Cost, null is that correlation is zero
+correlation_Gender_FinalCost <- cor.test(df$Gender, df$UltimateIncurredClaimCost, method = "pearson"); correlation_Gender_FinalCost
+
+```
+```{r title, error=TRUE}
+
+###Pearson correlation test for Marital Status with Final Cost, null is that correlation is zero
+correlation_MaritalStatus_FinalCost <- cor.test(df$MaritalStatus, df$UltimateIncurredClaimCost, method = "pearson"); correlation_MaritalStatus_FinalCost
+
+```
+
+```{r title, error=TRUE}
+
+###Pearson correlation test for Dependents with Final Cost, null is that correlation is zero
+correlation_Dependents_FinalCost <- cor.test(df$HasDependents, df$UltimateIncurredClaimCost, method = "pearson"); correlation_Dependents_FinalCost
+
+```
+
+```{r title, error=TRUE}
+
+###Summary stats of the final claim cost
+summary(df$UltimateIncurredClaimCost)
+
+```
+
+```{r title, error=TRUE}
+
+###Skewness of the final claim cost
+skewness(df$UltimateIncurredClaimCost)
+
+```
+
+```{r title, error=TRUE}
+
+###Kurtosis of the final claim cost
+kurtosis(df$UltimateIncurredClaimCost)
+
+```
+
+```{r title, error=TRUE}
+
+##Summary stats of final claim cost WITH top 1% and bottom 1% trimmed
+lower_bound <- quantile(df$UltimateIncurredClaimCost, 0.01)
+upper_bound <- quantile(df$UltimateIncurredClaimCost, 0.99)
+trimmed_claim_cost <- subset(df$UltimateIncurredClaimCost, df$UltimateIncurredClaimCost > lower_bound & df$UltimateIncurredClaimCost < upper_bound)
+summary(trimmed_claim_cost)
+
+```
+
+```{r title, error=TRUE}
+
+##skewness of final claim cost WITH top 1% and bottom 1% trimmed
+skewness(trimmed_claim_cost)
+
+```
+
+```{r title, error=TRUE}
+
+##kurtosis stats of final claim cost WITH top 1% and bottom 1% trimmed
+kurtosis(trimmed_claim_cost)
+
+```
+
+```{r title, error=TRUE}
+
+##summary stats of log transformed final claim costs
+summary(log(df$UltimateIncurredClaimCost))
+  
+```
+
+```{r title, error=TRUE}
+
+##skewness of log transformed final claim cost
+skewness(log(df$UltimateIncurredClaimCost))
+
+```
+
+```{r title, error=TRUE}
+
+##kurtosis of log transformed final claim cost
+kurtosis(log(df$UltimateIncurredClaimCost))
+
+```
+
+```{r title, error=TRUE}
+
+###Histogram of transformed final claim cost
+hist(log(df$UltimateIncurredClaimCost), breaks = 50, main = "Histogram of log(Claims Cost)", xlab = "log(Claims Cost)", col = "green")
+
+```
+
+```{r title, error=TRUE}
+
+###Barplot of final claim cost up to 15,000 on y axis
+barplot(df$UltimateIncurredClaimCost, col = "lightblue", xlab = "Insurance Claim", ylab = "Amount Paid", ylim = c(0,150000), main = "Barplot of Final Claim Cost")
+
+```
+
+```{r title, error=TRUE}
+
+###Barplot of final claim cost no y axis limit
+barplot(df$UltimateIncurredClaimCost, col = "lightblue", xlab = "Insurance Claim", ylab = "Amount Paid", main = "Barplot of Final Claim Cost")
+
+```
+
+```{r title, error=TRUE}
+
+###Boxplot of transformed final claim cost
+boxplot(log(df$UltimateIncurredClaimCost), main = "Boxplot of log(Claims Cost)", ylab = "log(Claims Cost)", range = 0, col = "lightblue", boxwex = 0.6)
+
+```
+
+```{r title, error=TRUE}
+
+###Scatterplot of final claim cost and Age (excluding some outliers via ylim)
+plot(df$Age, df$UltimateIncurredClaimCost, main = "Age vs Final Claim Cost, excluding some outliers", xlab = "Age", ylab = "Final Claim Cost", ylim = c(0,15000), col = rgb(0,0,1,0.4))
+
+```
+
+```{r title, error=TRUE}
+
+###Scatterplot of final claim cost and Age (excluding no outliers)
+plot(df$Age, df$UltimateIncurredClaimCost, main = "Age vs Final Claim Cost", xlab = "Age", ylab = "Final Claim Cost", col = rgb(0,0,1,0.4))
+
+```
+
+```{r title, error=TRUE}
+
+###Scatterplot of final claim cost and Hourly Pay, (excluding some outliers via ylim)
+plot(df$HourlyPay, df$UltimateIncurredClaimCost, main = "Hourly Pay vs Final Claim Cost, excluding some outliers", xlab = "Hourly Pay", ylab = "Final Claim Cost", ylim = c(0,200000), col = rgb(0,0,1,0.4))
+
+```
+
+```{r title, error=TRUE}
+
+###Scatterplot of final claim cost and Hourly Pay (excluding no outliers)
+plot(df$HourlyPay, df$UltimateIncurredClaimCost, main = "Hourly Pay vs Final Claim Cost", xlab = "Hourly Pay", ylab = "Final Claim Cost", col = rgb(0,0,1,0.4))
+
+```
+
+```{r title, error=TRUE}
+
+##Boxplot of final claim cost and gender zoomed in
+boxplot(df$UltimateIncurredClaimCost ~ df$Gender, 
+        xlab = "Final Claim Cost", 
+        ylab = "Gender",
+        ylim = c(0,10000),
+        main = "Gender vs Final Claim Cost, 0 is Female and 1 is Male (zoomed in)",
+        range = 1,
+        boxwex = 0.6,
+        col = "lightblue")
+
+```
+
+```{r title, error=TRUE}
+
+##Boxplot of final claim cost and gender zoomed out
+boxplot(df$UltimateIncurredClaimCost ~ df$Gender, 
+        xlab = "Final Claim Cost", 
+        ylab = "Gender",
+        ylim = c(0,1000000),
+        main = "Gender vs Final Claim Cost, 0 is Female and 1 is Male (zoomed out)",
+        range = 1,
+        boxwex = 0.6,
+        col = "lightblue")
+
+```
+
+```{r title, error=TRUE}
+
+##Boxplot of final claim cost and Marital Status zoomed in
+boxplot(df$UltimateIncurredClaimCost ~ df$MaritalStatus, 
+        xlab = "Final Claim Cost", 
+        ylab = "Marital Status",
+        ylim = c(0,10000),
+        boxwex = 0.6,
+        col = "lightblue",
+        main = "Marital Status vs Final Claim Cost, 0 is single and 1 is married (zoomed in)")
+
+```
+
+```{r title, error=TRUE}
+
+##Boxplot of final claim cost and Marital Status zoomed out
+boxplot(df$UltimateIncurredClaimCost ~ df$MaritalStatus, 
+        xlab = "Final Claim Cost", 
+        ylab = "Marital Status",
+        ylim = c(0,1000000),
+        boxwex = 0.6,
+        col = "lightblue",
+        main = "Marital Status vs Final Claim Cost, 0 is single and 1 is married (zoomed out)")
+
+```
+
+```{r title, error=TRUE}
+
+##Boxplot of final claim cost and whether the subject has dependents zoomed in
+boxplot(df$UltimateIncurredClaimCost ~ df$HasDependents, 
+        xlab = "Final Claim Cost", 
+        ylab = "Has Dependents",
+        ylim = c(0,20000),
+        boxwex = 0.6,
+        col = "lightblue",
+        main = "Dependents vs Final Claim Cost, 0 is no dependents and 1 is at least 1 dependent (zoomed in)",
+        range = 1)
+
+```
+
+```{r title, error=TRUE}
+
+##Boxplot of final claim cost and whether the subject has dependents zoomed out
+boxplot(df$UltimateIncurredClaimCost ~ df$HasDependents, 
+        xlab = "Final Claim Cost", 
+        ylab = "Has Dependents",
+        ylim = c(0,1000000),
+        boxwex = 0.6,
+        col = "lightblue",
+        main = "Dependents vs Final Claim Cost, 0 is no dependents and 1 is at least 1 dependent (zoomed out)",
+        range = 1)
+
+```
+
+```{r title, error=TRUE}
+
+##Test if Final Claim Cost is normally distributed, if it is use t-test and if not use Wilcox Rank Sum test
+ad.test(df$UltimateIncurredClaimCost) #null is that its normally distributed.  results:  very low p value, its not normally distributed
+
+```
+
+```{r title, error=TRUE}
+
+##Two sample Wilcox Rank Sum test of Final Claim Cost with Dependents vs without Dependents
+with_dependents <- df$UltimateIncurredClaimCost[df$HasDependents == 1]
+without_dependents <- df$UltimateIncurredClaimCost[df$HasDependents == 0]
+wilcox.test(with_dependents, without_dependents)
+
+```
+
+```{r title, error=TRUE}
+
+##Two sample Wilcox Rank Sum test of Final Claim Cost Married vs Single
+married_group <- df$UltimateIncurredClaimCost[df$MaritalStatus == 1]
+single_group <- df$UltimateIncurredClaimCost[df$MaritalStatus == 0]
+wilcox.test(married_group, single_group)
+
+```
+
+```{r title, error=TRUE}
+
+##Two sample Wilcox Rank Sum test of Final Claim Cost Male vs Female
+male_group <- df$UltimateIncurredClaimCost[df$Gender == 1]
+female_group <-df$UltimateIncurredClaimCost[df$Gender == 0]
+wilcox.test(male_group, female_group)
+
+```
+
+```{r title, error=TRUE}
+
+##Chi square test of Final Claim Cost with Dependents vs without Dependents
+shortened_without_dependents_group <- sample(x = without_dependents, size = length(with_dependents), replace = FALSE)
+chisq.test(shortened_without_dependents_group, with_dependents)
+
+```
+
+```{r title, error=TRUE}
+
+##Chi square test of Final Claim Cost Married vs Single
+#shortened_single_group <- sample(x = single_group, size = length(married_group), replace = FALSE)
+#chisq.test(shortened_single_group, married_group)
+##this returns Error: vector memory exhausted (limit reached?)
+
+```
+
+```{r title, error=TRUE}
+
+##Chi square test of Final Claim Cost Male vs Female
+shortened_male_group <- sample(x = male_group, size = length(female_group), replace = FALSE)
+chisq.test(shortened_male_group, female_group)
+
+```
+
+```{r title, error=TRUE}
+
+##Split the data df into 2 groups:  training (70%) and validation (30%)
+indices <- sample(1:nrow(df), size = 0.7*nrow(df), replace = FALSE) #this will randomly select 70% of the rows from df w/o replacement
+train <- df[indices, ] #this puts the random 70% of the df rows into a dataframe "train"
+test <- df[-indices, ] #this puts the remaning 30% of the df rows into a dataframe "test"
+
+```
+
+```{r title, error=TRUE}
+
+##Final multiple linear regression model
+linear_model <- lm(train$UltimateIncurredClaimCost ~ train$Age + train$HourlyPay + train$Gender + train$MaritalStatus + train$HasDependents + train$HourlyPay*train$Gender, data = train)
+
+```
+
+```{r title, error=TRUE}
+
+##Summary of the linear regression model
+summary(linear_model)
+
+```
+
+```{r title, error=TRUE}
+
+##AIC of the linear regression model
+AIC(linear_model)
+
+```
+
+```{r title, error=TRUE}
+
+##BIC of the linear regression model
+BIC(linear_model)
+
+```
+
+```{r title, error=TRUE}
+
+##RMSE of the linear regression model
+predictions1 <- predict(linear_model, newdata = test)
+RMSE1 <- rmse(test$UltimateIncurredClaimCost, predictions1);RMSE1
+
+```
+
+```{r title, error=TRUE}
+
+##checking linearity
+plot(predict(linear_model12), residuals(linear_model12),
+     xlab = "Predicted values",
+     ylab = "Residuals",
+     main = "Residuals vs Predicted values")
+abline(h=0, col='red')
+
+```
+
+```{r title, error=TRUE}
+
+##checking normality of residuals
+
+residuals_linear_model <- residuals(linear_model)
+if(length(residuals_linear_model) > 0) {
+  qqnorm(residuals_linear_model)
+  qqline(residuals_linear_model)
+} else {
+  print("Theres no residuals")
+}
+
+```
+
+```{r title, error=TRUE}
+
+##Final linear regression model with log transformed data (outcome variable is log transformed)
+log_linear_model <- lm(log(train$UltimateIncurredClaimCost) ~ (train$Age) + (train$HourlyPay) + (train$Gender) + (train$HasDependents) + (train$HourlyPay)*train$Gender, data = (train))
+
+```
+
+```{r title, error=TRUE}
+
+##Summary of log linear regression model
+summary(log_linear_model)
+
+```
+
+```{r title, error=TRUE}
+
+##AIC of log linear regression model
+AIC(log_linear_model)
+
+```
+
+```{r title, error=TRUE}
+
+##BIC of log linear regression model
+BIC(log_linear_model)
+
+```
+
+```{r title, error=TRUE}
+
+##RMSE of log linear regression model
+predictions2 <- predict(log_linear_model, newdata = (test))
+RMSE2 <- rmse(log(test$UltimateIncurredClaimCost), predictions2);RMSE2
+
+```
+
+```{r title, error=TRUE}
+
+#checking normality of residuals
+residuals_log_linear_model <- residuals(log_linear_model)
+if(length(residuals_log_linear_model) > 0) {
+  qqnorm(residuals_log_linear_model)
+  qqline(residuals_log_linear_model)
+} else {
+  print("Theres no residuals")
+}
+
+```
+
+```{r title, error=TRUE}
+
+##checking linearity
+plot(predict(log_linear_model), residuals(log_linear_model),
+     xlab = "Predicted values",
+     ylab = "Residuals",
+     main = "Residuals vs Predicted values")
+abline(h=0, col='red')
+
+```
+
+```{r title, error=TRUE}
+
+#Final Neural Network
+skynet <- neuralnet(UltimateIncurredClaimCost ~ Age + HourlyPay + Gender + MaritalStatus + HasDependents, data = train, hidden = c(3,3), rep = 5, threshold = 0.01, act.fct = "logistic")
+
+```
+
+```{r title, error=TRUE}
+
+#Visualization of the neural network
+plotnet(skynet)
+
+```
+
+```{r title, error=TRUE}
+
+##Another way to see Relative importance of input variables
+olden(skynet)
+
+```
+
+```{r title, error=TRUE}
+
+##RMSE of neural network
+pred3 <- predict(skynet, test)
+RMSE3 <- rmse(test$UltimateIncurredClaimCost, pred3);RMSE3
+
+```
+
+```{r title, error=TRUE}
+
+skynet_residuals <- test$UltimateIncurredClaimCost - pred3
+plot(skynet_residuals)
+
+median(skynet_residuals)
+sd(skynet_residuals)
+
+
+# Getting predictions from the model
+predictions <- predict(skynet, test[, c("Age", "HourlyPay", "Gender", "MaritalStatus", "HasDependents")])
+
+# Calculate residuals
+skynet_residuals <- test$UltimateIncurredClaimCost - predictions
+
+
+```
